@@ -1,42 +1,73 @@
 # bridge-c-core
 
-C 端守护进程通用内核。封装一切**协议无关**的逻辑,各公司项目(`aidun_bridge_c` / `yujia_bridge_c` / 未来的 `xxx_bridge_c`)只需写很薄的适配层。
+**C 端守护进程通用内核。** 为多企业(`aidun_bridge_c` / `yujia_bridge_c` / 未来的 `xxx_bridge_c`)提供同一套底层实现,各企业的 C 端项目只写 **30~50 行**协议差异声明即可上线。
 
-## 它做什么
+---
 
-每个公司的 C 端守护进程要做的事情都一样：
+## 它解决什么问题
 
-1. 周期性调用对端 `/{前缀}/v1/inbox/pull` 拉取条目
-2. 把条目原子地写入本地 `data/pending/*.json` 供本机 Agent 消费
-3. 同一条记录只写一次(基于 `record_id`,缺失时用 sha256 兜底)
-4. 如果服务端 `auto_ack: true`,自动回 `/{前缀}/v1/inbox/{id}/ack`
-5. 错误一律 warn 后继续轮询,绝不退出
+大多数客户机器没有稳定公网 IP,Agent(比如 Hermes)之间无法直接相连。每家企业的服务端开了一个"实例池"中转,C 端守护进程在客户机本地长轮询这个池子,拿到任务后写入本地目录给 Agent 消费。
 
-`bridge-c-core` 实现了以上全部,**协议差异只剩三处**:
+各企业服务端的接口长得几乎一样,只是路径前缀、请求头、env 变量名不同。**`bridge-c-core` 把"几乎一样"的部分一次性写好**,各企业仓库只声明"不一样"的三件事即可。
 
-| 公司差异点        | 配置位置                                |
-|-----------------|----------------------------------------|
-| URL 前缀         | `BaseClient.URL_PREFIX`(子类覆写)       |
-| 实例请求头        | `BaseClient.INSTANCE_HEADER`(子类覆写) |
-| 环境变量前缀       | `make_cli(env_prefix=...)` 入参         |
+```
+            ┌──────────────────────────────────────┐
+            │           bridge_c_core              │
+            │  (1 份, 上 PyPI 或私有源)             │
+            │                                       │
+            │  - 轮询循环                            │
+            │  - sha256 + 原子写本地文件             │
+            │  - Settings + 边界裁剪                  │
+            │  - HTTP 基类(strict / relaxed 配对)    │
+            │  - CLI 模板 (make_cli)                  │
+            │  - PROTOCOL 规范(对端服务器需遵循)      │
+            └──────────┬──────────────┬─────────────┘
+                       │              │
+              ┌────────▼──────┐ ┌─────▼────────────┐ ┌──── 新企业 ────┐
+              │ yujia_bridge_c│ │ aidun_bridge_c   │ │ xxx_bridge_c    │
+              │   /c/v1       │ │ /kq-pool/v1      │ │ /xxx/v1         │
+              │   C_BRIDGE_*  │ │ KQ_POOL_*        │ │ XXX_*           │
+              │   ~30 行代码  │ │ ~30 行代码       │ │ ~30 行代码       │
+              └───────────────┘ └──────────────────┘ └─────────────────┘
+```
 
-## 接入新公司的最小模板
+---
+
+## 文档导航
+
+| 看你是谁 | 看哪份 |
+|---|---|
+| 在某企业的客户机上**部署 C 端**的运维 | [docs/USAGE.md](docs/USAGE.md) |
+| 把某家**新企业**接入这套系统(写新仓) | [docs/INTEGRATION.md](docs/INTEGRATION.md) + [`bridge-c-template`](https://github.com/wiseyip0911/bridge-c-template) |
+| 给企业**服务端**实现/调整接口 | [docs/PROTOCOL.md](docs/PROTOCOL.md) |
+| 维护 `bridge-c-core` 本身,想理解设计取舍 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+
+---
+
+## 三分钟示例(新企业接入)
+
+如果未来要接入一家新企业(假设代号 `acme`,服务端地址 `https://api.acme.example.com`,协议路径 `/acme/v1`):
 
 ```python
-# xxx_bridge_c/client.py
+# acme_bridge_c/client.py  ——  全部内容
 from bridge_c_core import BaseClient
 
-class XxxClient(BaseClient):
-    URL_PREFIX = "/xxx/v1"
-    INSTANCE_HEADER = "X-Xxx-Instance-Id"
+class AcmeClient(BaseClient):
+    URL_PREFIX = "/acme/v1"
+    INSTANCE_HEADER = "X-Acme-Instance-Id"
+    DEFAULT_BASE_URL = "https://api.acme.example.com"
+
+    ENV_BASE_URL = "ACME_BASE_URL"
+    ENV_API_KEY = "ACME_API_KEY"
+    ENV_INSTANCE_ID = "ACME_INSTANCE_ID"
 ```
 
 ```python
-# xxx_bridge_c/__main__.py
+# acme_bridge_c/__main__.py  ——  全部内容
 from bridge_c_core.cli import make_cli
-from xxx_bridge_c.client import XxxClient
+from acme_bridge_c.client import AcmeClient
 
-main = make_cli(client_cls=XxxClient, env_prefix="XXX_", prog_name="XxxBridgeC")
+main = make_cli(client_cls=AcmeClient, env_prefix="ACME_", prog_name="AcmeBridgeC")
 
 if __name__ == "__main__":
     try:
@@ -45,40 +76,37 @@ if __name__ == "__main__":
         raise SystemExit(130) from None
 ```
 
-整个适配项目大约 30~50 行代码。
+末端机器只需:
 
-## 服务端协议要求(v1)
+```bash
+git clone <acme_bridge_c 仓库地址>
+cd acme_bridge_c
+pip install .
+export ACME_API_KEY=你的apikey
+python -m acme_bridge_c
+```
 
-所有公司服务端必须实现以下 endpoint(`{prefix}` 由各公司自取,例如 `/c/v1`、`/kq-pool/v1`):
+详细的接入步骤(含模板克隆、发布)见 [docs/INTEGRATION.md](docs/INTEGRATION.md)。
 
-| 方法 + 路径                        | 用途                                     |
-|----------------------------------|------------------------------------------|
-| `GET  {prefix}/inbox/pull?limit=` | 拉取待处理条目,响应 `{"success": true, "items": [...], "auto_ack": bool?}` |
-| `POST {prefix}/inbox/{id}/ack`    | 标记条目已处理                              |
-| `GET  {prefix}/directory`         | 返回当前所有已启用实例 id 列表(连通性检查)     |
-| `POST {prefix}/submit`            | 向**自己**收件箱投递                        |
-| `POST {prefix}/submit_to`         | 向**指定 instance_id** 收件箱投递           |
+---
 
-鉴权:`Authorization: Bearer <api_key>`。实例 header:`X-{Prefix}-Instance-Id`(可选)。
-
-## 环境变量
-
-各公司项目通过 `env_prefix` 共享同一组变量名。以 `KQ_POOL_` 为例:
-
-| 变量                          | 必填 | 默认值          | 说明                              |
-|-----------------------------|----|-----------------|---------------------------------|
-| `{PREFIX}BASE_URL`           | 是  | -               | 对端根 URL,无尾斜杠                |
-| `{PREFIX}API_KEY`            | 是* | -               | 管理页生成的 api_key,TTY 下可交互输入 |
-| `{PREFIX}INSTANCE_ID`        | 否  | -               | 实例代号(与凭证一致时建议设置)        |
-| `{PREFIX}POLL_INTERVAL_SEC`  | 否  | `5`             | 轮询间隔秒                          |
-| `{PREFIX}PULL_LIMIT`         | 否  | `10`            | 每次拉取上限(裁剪到 1..100)         |
-| `{PREFIX}LOCAL_POOL_DIR`     | 否  | `data/pending`  | 本地落盘目录                         |
-| `{PREFIX}HTTP_TIMEOUT_SEC`   | 否  | `60`            | HTTP 超时秒                         |
-
-## 开发安装
+## 开发
 
 ```powershell
 cd D:\BridgeCCore
 py -3 -m pip install -e .[dev]
 py -3 -m pytest -q
 ```
+
+26 个测试覆盖:`write_local_item`(sha256 稳定性 / 去重 / 原子写)、`BaseClient`(URL 拼接 / Headers / strict-relaxed)、`run_daemon`(轮询 / auto_ack / 嵌套 items)、`Settings.from_env`(env / 默认值 / 优先级)。
+
+---
+
+## 当前状态
+
+| 项 | 状态 |
+|---|---|
+| 协议 v1 | 稳定,详见 [PROTOCOL.md](docs/PROTOCOL.md) |
+| 内核 API | 0.1.x,SemVer:接口不变 bump patch,接口扩展 bump minor,破坏性改动 bump major |
+| 接入实例 | `aidun_bridge_c` ✅ 已上线 / `yujia_bridge_c` 待迁移 |
+| 已知 limitation | 服务端是"pull 即消费"语义,无显式 ack 重投机制,见 [ARCHITECTURE.md](docs/ARCHITECTURE.md) |
