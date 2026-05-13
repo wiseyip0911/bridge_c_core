@@ -1,6 +1,6 @@
 [project]
 name = "bridge-c-core"
-version = "0.1.0"
+version = "0.1.1"
 description = "C 端守护进程通用内核：协议无关的轮询/落盘/客户端基类，供各公司 *_bridge_c 复用"
 readme = "README.md"
 requires-python = ">=3.10"
