@@ -1,142 +1,48 @@
-# C 端部署与运维手册
+# C 端使用规则(中性模板)
 
-> 本手册写给**在某企业客户机上跑 C 端守护进程**的运维/工程师。
-> 假设这家企业已经接入完毕,你拿到的是一份具体的企业仓库,例如 `aidun_bridge_c` / `yujia_bridge_c` / 未来某个 `acme_bridge_c`。
-> 下文示例用 `acme_bridge_c` + env 前缀 `ACME_`。请把它换成你拿到的实际仓库名和前缀。
+> 本文写给**守护进程已经在跑了**、要把它接入自家应用的开发者(hermes / 业务后端 / 任何 agent)。
+> 各企业仓库会基于这份模板生成自己的 `docs/USAGE.md`,占位符 `acme` / `Acme` / `ACME` 会被换成实际企业代号、`AcmeClient` 会被换成 `KqPoolClient` / `YujiaBridgeClient` 之类。
+> 怎么把守护装上,见 [INSTALL.md](INSTALL.md)。
 
----
+C 端守护进程做的事只有两件:
 
-## 0. 准备
-
-- **Python ≥ 3.10**(`python3 --version` 或 Windows 上 `py -3 --version`)
-- 客户机能访问对端服务器(`curl -I <BASE_URL>` 应有响应)
-- 一个由对方管理员发给你的 `api_key`(只会出现一次,丢了重新生成一个)
+1. **拉(收件)**:周期性从对端拉本实例的待办任务,以 JSON 文件形式落到 `data/pending/`。本机应用读这个目录就行。
+2. **不替你处理任务**:C 端从不解释任务内容,也从不替任何应用删文件。**消费完要不要删文件,是应用自己的事。**
 
 ---
 
-## 1. 安装
+## 1. 取任务:扫 `data/pending/`
 
-```bash
-git clone <企业仓库地址>
-cd acme_bridge_c
-python -m pip install .
-```
+### 1.1 任务文件结构
 
-> 这会同时拉取 `bridge-c-core` 内核。建议在自己的虚拟环境里装,不污染系统 Python:
-> `python -m venv .venv && source .venv/bin/activate`(Linux/Mac)
-> `py -3 -m venv .venv && .venv\Scripts\activate`(Windows)
->
-> 不强制用 venv,但多机部署若各机器 Python 环境不一致,venv 能避免依赖冲突。
-
----
-
-## 2. 配置(最简情况只需 1 个)
-
-```bash
-export ACME_API_KEY=你的apikey
-```
-
-这就够了。`ACME_BASE_URL` 已经内置在仓库里(企业默认地址)。
-
-### 完整环境变量清单
-
-| 变量                          | 必填 | 默认值          | 何时需要改                            |
-|-----------------------------|----|-----------------|------------------------------------|
-| `ACME_API_KEY`                | 是  | -               | 必填                                |
-| `ACME_BASE_URL`               | 否  | 仓库内置        | 对端临时切换域名/协议时覆盖              |
-| `ACME_INSTANCE_ID`            | 否  | -               | 服务端要求与凭证分开展示实例时填写        |
-| `ACME_POLL_INTERVAL_SEC`      | 否  | `5`             | 想拉得更快或更慢                       |
-| `ACME_PULL_LIMIT`             | 否  | `10`            | 单次拉取条数上限(1..100)              |
-| `ACME_LOCAL_POOL_DIR`         | 否  | `data/pending`  | 想把任务文件放到别处                    |
-| `ACME_HTTP_TIMEOUT_SEC`       | 否  | `60`            | 网络慢/对端慢时调大                     |
-
----
-
-## 3. 三种运行方式
-
-### 3.1 连通性自检(部署第一步必做)
-
-```bash
-python -m acme_bridge_c --once
-```
-
-期望输出:一份 JSON,列出当前服务端所有已启用实例。例如:
-
-```json
-{
-  "success": true,
-  "items": [{"instance_id": "yeweizhi", "remark": "", "created_at": "2026-05-12T23:10:49"}],
-  "count": 1
-}
-```
-
-如果这里就报错或挂起,**先解决这一步再说**,不要直接上 daemon。常见错误见 §6。
-
-### 3.2 守护轮询(日常运行)
-
-```bash
-python -m acme_bridge_c
-```
-
-会一直跑,直到 Ctrl+C。日志走 stderr,长这样:
-
-```
-2026-05-13 11:33:17,579 INFO bridge_c_core.daemon bridge-c-core daemon starting base=http://c.acme.example pool=D:\acme_bridge_c\data\pending interval=5.0s
-2026-05-13 11:33:17,627 INFO httpx HTTP Request: GET http://c.acme.example/acme/v1/inbox/pull?limit=10 "HTTP/1.1 200 OK"
-2026-05-13 11:33:17,631 INFO bridge_c_core.daemon 已写入本地池 4825814a-1976-47d1-975d-560bd2a9b456.json
-```
-
-### 3.3 无 TTY 部署(systemd / supervisor / Windows 计划任务)
-
-```bash
-python -m acme_bridge_c --no-interactive
-```
-
-`--no-interactive` 防止在没有终端的环境下尝试 `getpass` 卡住。**必须提前把 `ACME_API_KEY` 设到环境里**,否则进程会 `exit 2`。
-
-systemd 单元示例:
-
-```ini
-# /etc/systemd/system/acme-bridge-c.service
-[Unit]
-Description=Acme Bridge C
-After=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=/opt/acme_bridge_c
-Environment=ACME_API_KEY=...
-ExecStart=/opt/acme_bridge_c/.venv/bin/python -m acme_bridge_c --no-interactive
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
----
-
-## 4. 任务文件长什么样
-
-每条任务作为一个 JSON 文件落到 `data/pending/<record_id>.json`,例如:
+每条任务 = `data/pending/<record_id>.json`,内容固定结构:
 
 ```json
 {
   "record_id": "721dddd0-ef10-4d3b-8e67-2908de3b4b7d",
   "instance_id": "yeweizhi",
-  "correlation_id": "bridge-c-test-002",
-  "record_type": "test",
+  "correlation_id": "调用方提交时给的 id",
+  "record_type": "task",
   "payload_json": {
-    "tag": "verify-landing",
-    "input_text": "second smoke test"
+    "input_text": "用户原始输入",
+    "其他业务字段": "..."
   },
   "created_at": "2026-05-13T11:35:18Z"
 }
 ```
 
-### 本机 Agent 怎么消费
+字段含义:
 
-最朴素的方式:**轮询目录**
+| 字段 | 含义 | 应用关心吗 |
+|---|---|---|
+| `record_id` | 全局唯一 id | 关心(去重 / 日志关联) |
+| `instance_id` | 本实例代号 | 一般不关心 |
+| `correlation_id` | 调用方给的关联 id | **关心**(回投结果时原样带回) |
+| `record_type` | 业务类型,由调用方约定 | 关心 |
+| `payload_json` | 真正的业务载荷 | **关心** |
+| `created_at` | 任务进池子的时间 | 仅供参考 |
+
+### 1.2 最小消费循环
 
 ```python
 from pathlib import Path
@@ -148,88 +54,132 @@ while True:
     for fp in sorted(POOL.glob("*.json")):
         record = json.loads(fp.read_text("utf-8"))
         try:
-            handle(record)
+            handle(record)              # 你自己的业务处理
         except Exception:
-            continue  # 暂不删,下次重试
+            continue                     # 失败不删,下次重试
         else:
-            fp.unlink()  # 处理完删文件
+            fp.unlink()                  # 成功才删
     time.sleep(1)
 ```
 
-要点:
+### 1.3 守护进程的承诺
 
-- **同一个 record_id 不会被写两次**(`bridge-c-core` 用 sha256/原子写保证去重和不写半截)。
-- Agent 自己负责"处理成功就删文件"。如果 Agent 也崩了,下次启动还能看到这个文件。
-- 多个 Agent 同时消费同一目录时,需要自己实现互斥(简单做法:重命名 `*.json` → `*.processing.<pid>` 再处理)。
+- **同一 `record_id` 绝不写两次**(基于 record_id 去重)。
+- **绝不写半截 JSON**(临时文件 + 原子 rename)。应用看到的要么是完整文件,要么文件根本没出现。
+- **守护或应用崩溃不丢消息**:文件落盘后就归应用管,不会因为守护重启而消失。
+
+### 1.4 多 worker 并发消费同一目录
+
+最简单的互斥姿势:把文件 rename 成"占用态"再处理。
+
+```python
+target = fp.with_suffix(f".processing.{os.getpid()}")
+try:
+    fp.rename(target)
+except FileNotFoundError:
+    continue                            # 被另一个 worker 抢了
+record = json.loads(target.read_text("utf-8"))
+# ... handle ...
+target.unlink()
+```
 
 ---
 
-## 5. 投递消息(C 端作为发送方)
+## 2. 投任务:Python 库用法
 
-C 端不只能"收",也能"发"。在本机的 Python 代码里:
+C 端不止能"收",也能"发"。在本机 Python 代码里:
 
 ```python
 from acme_bridge_c import AcmeClient
+```
 
-with AcmeClient() as c:               # 自动从 env 读 API_KEY + 默认 base_url
+`AcmeClient()` 不传参数时,会自动从 `.env` / 环境变量里读 `ACME_API_KEY` 和默认 `base_url`。
+
+### 2.1 列实例(发任务前先确认对方代号)
+
+```python
+with AcmeClient() as c:
+    print(c.directory())
+# {'success': True, 'items': [{'instance_id': 'yeweizhi', ...}, ...]}
+```
+
+### 2.2 给自己的收件箱投一条(常用于自测)
+
+```python
+with AcmeClient() as c:
     r = c.submit({
         "correlation_id": "any-id",
         "input_text": "hi",
         "payload_json": {"foo": "bar"},
         "record_type": "task",
     })
-    print(r)
+# {'success': True, 'record_id': '...', 'correlation_id': 'any-id', ...}
 ```
 
-或发给指定接收方:
+下一轮拉取就会在 `data/pending/<record_id>.json` 看到它。
+
+### 2.3 给指定接收方投一条(跨实例)
 
 ```python
-c.submit_to({
-    "to_instance_id": "其他实例代号",
-    "correlation_id": "xyz",
-    "input_text": "...",
-    "payload_json": {...},
-})
+with AcmeClient() as c:
+    c.submit_to({
+        "to_instance_id": "对方实例代号",     # 从 directory() 拿
+        "correlation_id": "xyz",
+        "input_text": "...",
+        "payload_json": {"...": "..."},
+        "record_type": "task",
+    })
 ```
+
+> ⚠ `Bearer` 始终是**发送方自己的** api_key,服务端凭 `to_instance_id` 路由。
+> 你不需要、也不应该知道对方的 api_key。
+
+### 2.4 处理完把结果回投给调用方(典型双向 agent 模式)
+
+```python
+def handle(record):
+    result = do_my_business(record["payload_json"])
+    with AcmeClient() as c:
+        c.submit_to({
+            "to_instance_id": record["payload_json"].get("reply_to") or "<调用方实例代号>",
+            "correlation_id": record["correlation_id"],   # 原样带回
+            "record_type": "result",
+            "payload_json": {"ok": True, "result": result},
+        })
+```
+
+> `correlation_id` 必须**原样带回**,调用方就靠它把请求和响应配对。
 
 ---
 
-## 6. 排错
+## 3. 用起来后的排错
 
 | 现象 | 多半原因 | 怎么办 |
 |---|---|---|
-| `--once` 卡住,无响应 | 对端 URL 不通 / 防火墙 | `curl -I <BASE_URL>` 看看;改 `ACME_BASE_URL` 临时覆盖 |
-| `请设置环境变量 ACME_API_KEY` 然后退出 | 没设 API_KEY,且无 TTY | 设环境变量,或在 TTY 下交互输入 |
-| HTTP 401 | api_key 错 / 被禁用 | 管理员后台确认状态,必要时重新生成 |
-| HTTP 404 + 日志说"可能尚未部署 /inbox/pull" | 服务端路径前缀不对 | 跟服务端确认,临时 `ACME_BASE_URL` 切到正确域名 |
-| `data/pending/` 一直没有文件 | 服务端 inbox 是空的 / 实例代号没注册 | `--once` 看 `directory` 是否包含你预期的实例;让对方往你的 inbox 投一条测试消息 |
-| 日志里反复"轮询失败" | 对端临时抽风 / 证书问题 | daemon 会自动重试,等几分钟;持续异常去查对端日志 |
-| 客户机时间错乱导致 TLS 失败 | 系统时间不准 | `systemctl status systemd-timesyncd` / `w32tm /query /status` 校时 |
+| `data/pending/` 一直没文件 | 服务端 inbox 是空的 | 正常,等真有人投。可以自己 `c.submit({...})` 投一条自测 |
+| `directory()` 里没有自己的实例 | api_key 关联了别的实例 / 实例没注册 | 找对端管理员 |
+| `submit_to` 返回 404 / "instance not found" | `to_instance_id` 拼错 | 先 `directory()` 拿准确的代号 |
+| `data/pending/` 堆积越来越多 | 应用没在跑 / 应用处理跟不上 | 检查应用进程;考虑加 worker(见 §1.4) |
+| `submit` 返回 200 但下一轮拉不到 | 投到了"别人"的实例 | `submit`(投自己) vs `submit_to`(投别人),别混 |
+| 守护日志反复 `轮询失败` | 对端临时抽风 / 网络抖 | 守护自动重试,几分钟内属正常;持续异常找对端 |
 
-### 进一步排查
-
-把日志级别调到 DEBUG:
+### 3.1 调高日志级别看请求细节
 
 ```bash
-# Linux/Mac
-PYTHONLOGGING_LEVEL=DEBUG python -m acme_bridge_c
+python -c "import logging; logging.basicConfig(level=logging.DEBUG); \
+           from acme_bridge_c.__main__ import main; main()"
 ```
 
-不过当前实现的 `setup_logging` 没有走环境变量,要 DEBUG 信息最简单的办法是:
+### 3.2 看池子堆积
 
-```python
-import logging; logging.basicConfig(level=logging.DEBUG)
-# 然后再 import 跑 daemon
+```bash
+ls -la data/pending/        # 看积压
+ls data/pending/ | wc -l    # 数量
 ```
 
 ---
 
-## 7. 升级
+## 4. 协议字段完整定义
 
-```bash
-cd acme_bridge_c
-git pull
-python -m pip install -U .
-```
-
-`bridge-c-core` 的小版本升级是向后兼容的(SemVer)。如果企业仓 bump 了内核大版本(`bridge-c-core 1.x → 2.x`),需要走 release notes,可能涉及协议更换。
+完整 HTTP 协议、字段语义、错误码见 [PROTOCOL.md](PROTOCOL.md)。
+在 C 端这层你只需要记住上面 §1 / §2 的几个 Python 用法就够了。

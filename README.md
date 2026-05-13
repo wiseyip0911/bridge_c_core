@@ -35,12 +35,18 @@
 
 ## 文档导航
 
+文档刻意拆成两条互不重叠的线,**装的事在 INSTALL,用的事在 USAGE**,避免 agent / 新人把"启动守护"和"投递消息"搞混:
+
 | 看你是谁 | 看哪份 |
 |---|---|
-| 在某企业的客户机上**部署 C 端**的运维 | [docs/USAGE.md](docs/USAGE.md) |
+| 第一次在某企业客户机上**装并跑起** C 端的运维 | [docs/INSTALL.md](docs/INSTALL.md) |
+| 守护已经在跑,要把它**接入自家应用**的开发者(hermes / 业务后端等) | [docs/USAGE.md](docs/USAGE.md) |
 | 把某家**新企业**接入这套系统(写新仓) | [docs/INTEGRATION.md](docs/INTEGRATION.md) + [`bridge-c-template`](https://github.com/wiseyip0911/bridge-c-template) |
 | 给企业**服务端**实现/调整接口 | [docs/PROTOCOL.md](docs/PROTOCOL.md) |
 | 维护 `bridge-c-core` 本身,想理解设计取舍 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+
+> 上面 INSTALL / USAGE 是**中性版**,以 `acme` / `ACME` 占位。
+> 企业仓库(例如 `aidun_bridge_c`、`yujia_bridge_c`)发布前,会照模板把占位符替换成自家代号,末端用户拿到的是已替换好的具体版本。
 
 ---
 

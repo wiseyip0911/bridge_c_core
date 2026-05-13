@@ -100,17 +100,28 @@ twine upload dist/*
 
 ---
 
-## 接入完成后:把末端用户文档发给客户
+## 接入完成后:发给客户的文档结构
 
-让客户照 [USAGE.md](USAGE.md) 上操作,他们只需要做:
+企业仓里有两份**互不重叠**的文档,在接入流程完成后会随仓库一起发布:
+
+| 给谁 | 文档 |
+|---|---|
+| 装并跑起守护的人(运维) | `docs/INSTALL.md` |
+| 把守护接入自家应用的人(开发者) | `docs/USAGE.md` |
+
+末端用户的最短路径:
 
 ```bash
 git clone <你刚发布的企业仓地址>
 cd <repo>
+git checkout <stable tag>
 pip install .
-export <PREFIX>_API_KEY=<由你给他>
-python -m <pkg>_bridge_c
+cp .env.example .env             # 填入 <PREFIX>_API_KEY
+python -m <pkg>_bridge_c --once  # 自检
+python -m <pkg>_bridge_c          # 启动守护
 ```
+
+具体顺序、自检期望输出、systemd / 任务计划写法,都在企业仓的 `docs/INSTALL.md` 里。
 
 ---
 
