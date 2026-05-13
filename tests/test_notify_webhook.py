@@ -68,6 +68,7 @@ def _settings_with_notify(
         notify_webhook_url=url,
         notify_webhook_secret=secret,
         notify_webhook_timeout_sec=timeout,
+        message_log_path="",
     )
 
 

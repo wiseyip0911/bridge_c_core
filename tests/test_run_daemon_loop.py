@@ -42,6 +42,7 @@ def _settings(tmp_path: Path) -> Settings:
         pull_limit=10,
         local_pool_dir=str(tmp_path),
         request_timeout_sec=60.0,
+        message_log_path="",
     )
 
 
