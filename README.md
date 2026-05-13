@@ -106,7 +106,7 @@ py -3 -m pip install -e .[dev]
 py -3 -m pytest -q
 ```
 
-26 个测试覆盖:`write_local_item`(sha256 稳定性 / 去重 / 原子写)、`BaseClient`(URL 拼接 / Headers / strict-relaxed)、`run_daemon`(轮询 / auto_ack / 嵌套 items)、`Settings.from_env`(env / 默认值 / 优先级)。
+33 个测试覆盖:`write_local_item`(sha256 稳定性 / 去重 / 原子写)、`BaseClient`(URL 拼接 / Headers / strict-relaxed)、`run_daemon`(轮询 / auto_ack / 嵌套 items)、`Settings.from_env`(env / 默认值 / 优先级)、`notify_webhook`(签名 / 失败不抛 / 去重)。
 
 ---
 

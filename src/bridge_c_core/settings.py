@@ -24,6 +24,12 @@ class Settings:
     pull_limit: int
     local_pool_dir: str
     request_timeout_sec: float
+    # 落盘成功后,可选地把整条记录 POST 给本机某个 HTTP 端点(常用于通知本机
+    # Agent/Worker 立即处理新任务,典型场景是 hermes gateway 的 webhook URL)。
+    # url 为空 = 关闭通知(默认,完全向后兼容)。
+    notify_webhook_url: str = ""
+    notify_webhook_secret: str = ""
+    notify_webhook_timeout_sec: float = 5.0
 
     @classmethod
     def from_env(
@@ -52,6 +58,11 @@ class Settings:
             "pull_limit": f"{env_prefix}PULL_LIMIT",
             "local_pool_dir": f"{env_prefix}LOCAL_POOL_DIR",
             "request_timeout_sec": f"{env_prefix}HTTP_TIMEOUT_SEC",
+            "notify_webhook_url": f"{env_prefix}NOTIFY_WEBHOOK_URL",
+            "notify_webhook_secret": f"{env_prefix}NOTIFY_WEBHOOK_SECRET",
+            "notify_webhook_timeout_sec": (
+                f"{env_prefix}NOTIFY_WEBHOOK_TIMEOUT_SEC"
+            ),
         }
         if env_overrides:
             names.update(env_overrides)
@@ -89,6 +100,15 @@ class Settings:
         except ValueError:
             timeout = 60.0
 
+        notify_url = _env(names["notify_webhook_url"], "")
+        notify_secret = _env(names["notify_webhook_secret"], "")
+        try:
+            notify_timeout = float(
+                _env(names["notify_webhook_timeout_sec"], "5") or "5"
+            )
+        except ValueError:
+            notify_timeout = 5.0
+
         return cls(
             base_url=base,
             api_key=key,
@@ -97,4 +117,7 @@ class Settings:
             pull_limit=max(1, min(limit, 100)),
             local_pool_dir=pool_dir,
             request_timeout_sec=max(5.0, timeout),
+            notify_webhook_url=notify_url,
+            notify_webhook_secret=notify_secret,
+            notify_webhook_timeout_sec=max(1.0, notify_timeout),
         )

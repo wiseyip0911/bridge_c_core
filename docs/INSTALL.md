@@ -68,6 +68,9 @@ ACME_API_KEY=<管理页给你的 apikey>
 | `ACME_PULL_LIMIT`          | 否  | `10`                            | 单次拉取上限(1..100) |
 | `ACME_LOCAL_POOL_DIR`      | 否  | `data/pending`                  | 想把任务文件放到别处 |
 | `ACME_HTTP_TIMEOUT_SEC`    | 否  | `60`                            | 网络慢/对端慢时调大 |
+| `ACME_NOTIFY_WEBHOOK_URL`    | 否  | -                | 想让"新任务落盘"实时通知本机 Agent(详见 §5.1) |
+| `ACME_NOTIFY_WEBHOOK_SECRET` | 否  | -                | webhook 接收方启用 HMAC 校验时需要 |
+| `ACME_NOTIFY_WEBHOOK_TIMEOUT_SEC` | 否 | `5`             | 通知 POST 的超时(秒) |
 
 ---
 
@@ -97,6 +100,41 @@ python -m acme_bridge_c --once
 ```bash
 python -m acme_bridge_c
 ```
+
+### 5.1 可选:新任务到达即时通知本机 Agent
+
+守护默认是"拉到任务 → 写到 `data/pending/`",由本机 Agent(hermes / 你的 worker)
+**自己去看**那个目录。如果你希望"新任务一落地就立刻有人处理",可以让守护
+**额外**把整条记录 POST 给本机一个 webhook,这个 webhook 通常由你的 Agent 提供。
+
+只需在 `.env` 里加一行:
+
+```bash
+ACME_NOTIFY_WEBHOOK_URL=http://127.0.0.1:8644/webhooks/bridge-task
+```
+
+可选地加 HMAC secret(对端开启签名校验时必填):
+
+```bash
+ACME_NOTIFY_WEBHOOK_SECRET=<your-secret>
+# 或本机 loopback 调试用:
+ACME_NOTIFY_WEBHOOK_SECRET=INSECURE_NO_AUTH
+```
+
+行为约定:
+
+- **可选,默认禁用**:`ACME_NOTIFY_WEBHOOK_URL` 不设就是老行为,完全向后兼容。
+- **不影响主循环**:POST 失败仅记 WARNING,任务文件已经原子落盘,Agent 仍可
+  用 `ls data/pending/` 兜底,**不会丢消息**。
+- **HMAC 签名兼容 GitHub 协议**:secret 非空时,会在 `X-Hub-Signature-256` 头
+  填 `sha256=<hex>`,这样接收方(`hermes gateway` 等 webhook adapter)可以直接
+  按其约定校验;secret = `INSECURE_NO_AUTH` 时不签名,接收方应仅在 loopback
+  环境跳过校验。
+- **幂等**:每次 POST 都带 `X-Request-ID` / `X-GitHub-Delivery` =
+  `record_id`,接收方据此去重,重启守护回放也只触发一次 agent run。
+
+> 典型配套:在同一台机器跑 `hermes gateway run` + `hermes webhook subscribe <name>`,
+> 然后用 `<name>` 拼出本机 URL 写到这里。具体见各 Agent 框架的 webhook 说明。
 
 会一直跑,直到 Ctrl+C。看到周期性的 `HTTP/1.1 200 OK` 就是健康。
 

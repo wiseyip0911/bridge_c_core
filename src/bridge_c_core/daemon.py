@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import logging
 import os
 import time
 from pathlib import Path
 from typing import Any, Protocol
+
+import httpx
 
 from bridge_c_core.settings import Settings
 
@@ -55,6 +58,69 @@ def write_local_item(pool_dir: Path, record: dict[str, Any]) -> Path | None:
     return path
 
 
+def notify_webhook(
+    url: str,
+    record: dict[str, Any],
+    *,
+    secret: str = "",
+    timeout: float = 5.0,
+    record_id: str = "",
+) -> bool:
+    """把单条记录 POST 给本机 webhook(典型场景:通知本机 Agent 立即处理)。
+
+    设计原则:
+    - **永不抛**:任何异常都被吞掉并记日志(任务文件已经落盘,push 失败不应
+      影响主循环;消费者随时可以用 list/poll 兜底)。
+    - **HMAC 签名兼容 GitHub 风格**:secret 非空时,在 ``X-Hub-Signature-256``
+      头里写 ``sha256=<hex>``,这样 hermes-agent 等支持 GitHub 协议的 webhook
+      adapter 可以直接校验。如果 secret 是 ``INSECURE_NO_AUTH``,不签名,留给
+      接收方按其约定跳过校验(仅供本机 loopback 调试)。
+    - **携带 X-Request-ID = record_id**:接收方据此实现幂等(重复 push 同一条
+      不会触发两次 agent run)。
+
+    返回 True 当且仅当对端响应 2xx。其它情况返回 False 但不抛。
+    """
+    if not url:
+        return False
+
+    try:
+        body = json.dumps(record, ensure_ascii=False).encode("utf-8")
+    except (TypeError, ValueError) as e:
+        logger.warning("notify_webhook 序列化失败,跳过: %s", e)
+        return False
+
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    rid = (record_id or "").strip() or str(
+        record.get("record_id") or record.get("id") or ""
+    ).strip()
+    if rid:
+        headers["X-Request-ID"] = rid
+        headers["X-GitHub-Delivery"] = rid
+
+    if secret and secret != "INSECURE_NO_AUTH":
+        sig = "sha256=" + hmac.new(
+            secret.encode("utf-8"), body, hashlib.sha256
+        ).hexdigest()
+        headers["X-Hub-Signature-256"] = sig
+
+    try:
+        r = httpx.post(url, content=body, headers=headers, timeout=timeout)
+    except httpx.HTTPError as e:
+        logger.warning("notify_webhook POST 失败(已忽略): %s", e)
+        return False
+
+    if r.status_code >= 400:
+        logger.warning(
+            "notify_webhook 对端返回 %s,body=%s",
+            r.status_code,
+            (r.text or "")[:300],
+        )
+        return False
+
+    logger.debug("notify_webhook 已通知 rid=%s status=%s", rid, r.status_code)
+    return True
+
+
 def _iter_items(resp: dict[str, Any]) -> list[dict[str, Any]]:
     items = resp.get("items")
     if isinstance(items, list) and items:
@@ -71,12 +137,23 @@ def run_daemon(client: PollableInbox, settings: Settings) -> None:
     pool = Path(settings.local_pool_dir)
     pool.mkdir(parents=True, exist_ok=True)
 
-    logger.info(
-        "bridge-c-core daemon starting base=%s pool=%s interval=%ss",
-        settings.base_url,
-        pool.resolve(),
-        settings.poll_interval_sec,
-    )
+    notify_url = (settings.notify_webhook_url or "").strip()
+    if notify_url:
+        logger.info(
+            "bridge-c-core daemon starting base=%s pool=%s interval=%ss "
+            "notify_webhook=%s",
+            settings.base_url,
+            pool.resolve(),
+            settings.poll_interval_sec,
+            notify_url,
+        )
+    else:
+        logger.info(
+            "bridge-c-core daemon starting base=%s pool=%s interval=%ss",
+            settings.base_url,
+            pool.resolve(),
+            settings.poll_interval_sec,
+        )
 
     while True:
         try:
@@ -92,6 +169,14 @@ def run_daemon(client: PollableInbox, settings: Settings) -> None:
                 written = write_local_item(pool, item)
                 if written:
                     logger.info("已写入本地池 %s", written.name)
+                    if notify_url:
+                        notify_webhook(
+                            notify_url,
+                            item,
+                            secret=settings.notify_webhook_secret,
+                            timeout=settings.notify_webhook_timeout_sec,
+                            record_id=_extract_record_id(item),
+                        )
                 rid = _extract_record_id(item)
                 if rid and auto_ack:
                     ack_r = client.inbox_ack_relaxed(rid)
