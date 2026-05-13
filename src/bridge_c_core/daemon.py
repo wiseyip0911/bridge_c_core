@@ -16,6 +16,7 @@ from typing import Any, Protocol
 
 import httpx
 
+from bridge_c_core.messages_log import append_inbound
 from bridge_c_core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -138,22 +139,20 @@ def run_daemon(client: PollableInbox, settings: Settings) -> None:
     pool.mkdir(parents=True, exist_ok=True)
 
     notify_url = (settings.notify_webhook_url or "").strip()
+    message_log = (settings.message_log_path or "").strip()
+    extras = []
     if notify_url:
-        logger.info(
-            "bridge-c-core daemon starting base=%s pool=%s interval=%ss "
-            "notify_webhook=%s",
-            settings.base_url,
-            pool.resolve(),
-            settings.poll_interval_sec,
-            notify_url,
-        )
-    else:
-        logger.info(
-            "bridge-c-core daemon starting base=%s pool=%s interval=%ss",
-            settings.base_url,
-            pool.resolve(),
-            settings.poll_interval_sec,
-        )
+        extras.append(f"notify_webhook={notify_url}")
+    if message_log:
+        extras.append(f"message_log={message_log}")
+    extras_str = (" " + " ".join(extras)) if extras else ""
+    logger.info(
+        "bridge-c-core daemon starting base=%s pool=%s interval=%ss%s",
+        settings.base_url,
+        pool.resolve(),
+        settings.poll_interval_sec,
+        extras_str,
+    )
 
     while True:
         try:
@@ -169,6 +168,12 @@ def run_daemon(client: PollableInbox, settings: Settings) -> None:
                 written = write_local_item(pool, item)
                 if written:
                     logger.info("已写入本地池 %s", written.name)
+                    if message_log:
+                        append_inbound(
+                            message_log,
+                            item,
+                            self_instance_id=settings.instance_id,
+                        )
                     if notify_url:
                         notify_webhook(
                             notify_url,

@@ -71,6 +71,7 @@ ACME_API_KEY=<管理页给你的 apikey>
 | `ACME_NOTIFY_WEBHOOK_URL`    | 否  | -                | 想让"新任务落盘"实时通知本机 Agent(详见 §5.1) |
 | `ACME_NOTIFY_WEBHOOK_SECRET` | 否  | -                | webhook 接收方启用 HMAC 校验时需要 |
 | `ACME_NOTIFY_WEBHOOK_TIMEOUT_SEC` | 否 | `5`             | 通知 POST 的超时(秒) |
+| `ACME_MESSAGE_LOG_PATH`    | 否  | `data/messages.jsonl` | 已发 / 已收消息总账(JSONL)。设为空字符串关闭 |
 
 ---
 

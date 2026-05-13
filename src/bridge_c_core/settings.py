@@ -30,6 +30,10 @@ class Settings:
     notify_webhook_url: str = ""
     notify_webhook_secret: str = ""
     notify_webhook_timeout_sec: float = 5.0
+    # 持久化"已发 / 已收"消息总账。空字符串 = 关闭;非空时,守护进程会在
+    # 落盘成功后追加一行 inbound,BaseClient 在 submit/submit_to 成功后追加一行
+    # outbound。文件格式见 messages_log.py。
+    message_log_path: str = "data/messages.jsonl"
 
     @classmethod
     def from_env(
@@ -63,6 +67,7 @@ class Settings:
             "notify_webhook_timeout_sec": (
                 f"{env_prefix}NOTIFY_WEBHOOK_TIMEOUT_SEC"
             ),
+            "message_log_path": f"{env_prefix}MESSAGE_LOG_PATH",
         }
         if env_overrides:
             names.update(env_overrides)
@@ -109,6 +114,11 @@ class Settings:
         except ValueError:
             notify_timeout = 5.0
 
+        # message_log_path 默认 "data/messages.jsonl",显式设为空字符串(在
+        # .env 里写 KQ_POOL_MESSAGE_LOG_PATH= 或 ="") 即可关闭。
+        # _env 在 env 不存在时返回 default,因此默认开启。
+        message_log = _env(names["message_log_path"], "data/messages.jsonl")
+
         return cls(
             base_url=base,
             api_key=key,
@@ -120,4 +130,5 @@ class Settings:
             notify_webhook_url=notify_url,
             notify_webhook_secret=notify_secret,
             notify_webhook_timeout_sec=max(1.0, notify_timeout),
+            message_log_path=message_log,
         )

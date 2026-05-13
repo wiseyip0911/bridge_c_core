@@ -7,16 +7,19 @@ from bridge_c_core.daemon import (
     run_daemon,
     write_local_item,
 )
+from bridge_c_core.messages_log import append_inbound, append_outbound
 from bridge_c_core.settings import Settings
 
 __all__ = [
     "BaseClient",
     "PollableInbox",
     "Settings",
+    "append_inbound",
+    "append_outbound",
     "notify_webhook",
     "run_daemon",
     "write_local_item",
     "__version__",
 ]
 
-__version__ = "0.1.3"
+__version__ = "0.1.4"

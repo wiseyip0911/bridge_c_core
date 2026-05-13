@@ -14,6 +14,8 @@ from typing import Any, ClassVar
 
 import httpx
 
+from bridge_c_core.messages_log import append_outbound
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,6 +31,10 @@ class BaseClient:
     ENV_API_KEY: ClassVar[str] = ""
     ENV_INSTANCE_ID: ClassVar[str] = ""
 
+    #: 子类可以覆盖这个 env 名,用来读取消息总账的落地路径。空字符串 / 未声明
+    #: 代表"不读取 env";构造参数 ``message_log_path`` 仍然有效。
+    ENV_MESSAGE_LOG_PATH: ClassVar[str] = ""
+
     def __init__(
         self,
         base_url: str | None = None,
@@ -36,6 +42,7 @@ class BaseClient:
         instance_id: str | None = None,
         *,
         timeout: float = 60.0,
+        message_log_path: str | None = None,
     ) -> None:
         if not self.URL_PREFIX:
             raise TypeError(f"{type(self).__name__} 必须声明 URL_PREFIX")
@@ -65,6 +72,17 @@ class BaseClient:
             raise ValueError(
                 f"api_key is required (or set env {self.ENV_API_KEY or '<未声明>'})"
             )
+
+        # 消息总账路径优先级:构造参数 > env > 空(关闭)。
+        if message_log_path is None:
+            env_v = (
+                os.environ.get(self.ENV_MESSAGE_LOG_PATH)
+                if self.ENV_MESSAGE_LOG_PATH
+                else None
+            )
+            self.message_log_path = (env_v or "").strip()
+        else:
+            self.message_log_path = (message_log_path or "").strip()
 
         self._timeout = timeout
         self._client = httpx.Client(timeout=timeout)
@@ -175,14 +193,45 @@ class BaseClient:
     def directory_relaxed(self) -> dict[str, Any]:
         return self._request_relaxed("GET", "/directory")
 
+    # 这四个 submit 包装都在成功后调一次 append_outbound;失败/relaxed 失败
+    # 不写日志,避免污染时间线。
+
     def submit(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._request_strict("POST", "/submit", json_body=body)
+        resp = self._request_strict("POST", "/submit", json_body=body)
+        self._log_outbound(body, resp, kind="submit")
+        return resp
 
     def submit_relaxed(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._request_relaxed("POST", "/submit", json_body=body)
+        resp = self._request_relaxed("POST", "/submit", json_body=body)
+        if resp.get("success", True):
+            self._log_outbound(body, resp, kind="submit")
+        return resp
 
     def submit_to(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._request_strict("POST", "/submit_to", json_body=body)
+        resp = self._request_strict("POST", "/submit_to", json_body=body)
+        self._log_outbound(body, resp, kind="submit_to")
+        return resp
 
     def submit_to_relaxed(self, body: dict[str, Any]) -> dict[str, Any]:
-        return self._request_relaxed("POST", "/submit_to", json_body=body)
+        resp = self._request_relaxed("POST", "/submit_to", json_body=body)
+        if resp.get("success", True):
+            self._log_outbound(body, resp, kind="submit_to")
+        return resp
+
+    def _log_outbound(
+        self,
+        body: dict[str, Any],
+        response: dict[str, Any],
+        *,
+        kind: str,
+    ) -> None:
+        """append 一条 outbound 行;失败被 append_outbound 内部吞掉。"""
+        if not self.message_log_path:
+            return
+        append_outbound(
+            self.message_log_path,
+            body,
+            response,
+            kind=kind,
+            self_instance_id=self.instance_id,
+        )
