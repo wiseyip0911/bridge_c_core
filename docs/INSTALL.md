@@ -1,7 +1,7 @@
-# C 端安装与部署(中性模板)
+# C 端安装与部署(参考稿)
 
-> 本文写给**在某企业客户机上第一次跑起 C 端守护进程**的运维/工程师。
-> 各企业仓库会基于这份模板生成自己的 `docs/INSTALL.md`,把占位符 `acme` / `ACME` / `Acme` 换成实际企业代号、`https://api.acme.example.com` 换成实际生产地址。
+> 本文放在 `bridge-c-core` 仓库里,作为**所有企业 C 端仓**的运维侧参考。
+> 各企业专用仓可直接复制为 `docs/INSTALL.md`,再全仓把 `acme` / `ACME` / `Acme`、`https://api.acme.example.com` 等占位替换成该企业实际值。
 > 装完之后怎么投递、怎么消费,见 [USAGE.md](USAGE.md)。
 
 ---

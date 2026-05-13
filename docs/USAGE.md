@@ -1,7 +1,7 @@
-# C 端使用规则(中性模板)
+# C 端使用规则(参考稿)
 
-> 本文写给**守护进程已经在跑了**、要把它接入自家应用的开发者(hermes / 业务后端 / 任何 agent)。
-> 各企业仓库会基于这份模板生成自己的 `docs/USAGE.md`,占位符 `acme` / `Acme` / `ACME` 会被换成实际企业代号、`AcmeClient` 会被换成 `KqPoolClient` / `YujiaBridgeClient` 之类。
+> 本文放在 `bridge-c-core` 仓库里,作为**所有企业 C 端仓**的应用侧参考。
+> 各企业专用仓可直接复制为 `docs/USAGE.md`,再全仓把 `acme` / `Acme` / `ACME`、`AcmeClient` 等占位替换成该企业实际类名与环境前缀。
 > 怎么把守护装上,见 [INSTALL.md](INSTALL.md)。
 
 C 端守护进程做的事只有两件:

@@ -41,12 +41,12 @@
 |---|---|
 | 第一次在某企业客户机上**装并跑起** C 端的运维 | [docs/INSTALL.md](docs/INSTALL.md) |
 | 守护已经在跑,要把它**接入自家应用**的开发者(hermes / 业务后端等) | [docs/USAGE.md](docs/USAGE.md) |
-| 把某家**新企业**接入这套系统(写新仓) | [docs/INTEGRATION.md](docs/INTEGRATION.md) + [`bridge-c-template`](https://github.com/wiseyip0911/bridge-c-template) |
+| 把某家**新企业**接入这套系统(写新仓) | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
 | 给企业**服务端**实现/调整接口 | [docs/PROTOCOL.md](docs/PROTOCOL.md) |
 | 维护 `bridge-c-core` 本身,想理解设计取舍 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 
-> 上面 INSTALL / USAGE 是**中性版**,以 `acme` / `ACME` 占位。
-> 企业仓库(例如 `aidun_bridge_c`、`yujia_bridge_c`)发布前,会照模板把占位符替换成自家代号,末端用户拿到的是已替换好的具体版本。
+> 上面 INSTALL / USAGE 是**中性参考稿**,以 `acme` / `ACME` 占位。
+> 各企业专用仓可直接复制这两份到 `docs/`,再全仓替换成自家代号与 URL;或直接维护企业自己的 INSTALL/USAGE(内容应对齐本仓库这两份的结构,便于 agent 与人类阅读)。
 
 ---
 
@@ -85,14 +85,16 @@ if __name__ == "__main__":
 末端机器只需:
 
 ```bash
-git clone <acme_bridge_c 仓库地址>
+git clone <企业专用仓库地址>
 cd acme_bridge_c
 pip install .
-export ACME_API_KEY=你的apikey
+cp .env.example .env
+# 编辑 .env 填入 ACME_API_KEY
+python -m acme_bridge_c --once
 python -m acme_bridge_c
 ```
 
-详细的接入步骤(含模板克隆、发布)见 [docs/INTEGRATION.md](docs/INTEGRATION.md)。
+新企业如何生成这份专用仓(无单独模板仓):见 [docs/INTEGRATION.md](docs/INTEGRATION.md)。
 
 ---
 
