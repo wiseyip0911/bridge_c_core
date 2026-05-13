@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import sys
+from pathlib import Path
 from typing import Callable
 
 from bridge_c_core.client import BaseClient
@@ -33,6 +34,31 @@ def setup_logging(level: int = logging.INFO) -> None:
         level=level,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+
+
+def _autoload_dotenv() -> None:
+    """启动时自动加载 ``.env``,优先级低于已存在的环境变量。
+
+    查找顺序:当前工作目录 → 入口脚本同级目录。``python-dotenv`` 缺失或
+    文件不存在时静默跳过,确保把 C 端作为库嵌入到宿主应用时不会出意外。
+    """
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return
+    candidates = [Path.cwd() / ".env"]
+    main_mod = sys.modules.get("__main__")
+    main_file = getattr(main_mod, "__file__", None)
+    if main_file:
+        candidates.append(Path(main_file).resolve().parent / ".env")
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.is_file():
+            load_dotenv(path, override=False)
 
 
 def make_cli(
@@ -68,6 +94,7 @@ def make_cli(
         args = parser.parse_args()
 
         setup_logging()
+        _autoload_dotenv()
 
         try:
             settings = Settings.from_env(
