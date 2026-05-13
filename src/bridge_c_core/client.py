@@ -21,6 +21,10 @@ class BaseClient:
     URL_PREFIX: ClassVar[str] = ""
     INSTANCE_HEADER: ClassVar[str] = "X-Bridge-Instance-Id"
 
+    #: 企业专用仓建议在子类里写死 ``DEFAULT_BASE_URL``,这样末端部署机器只需配 API_KEY。
+    #: 优先级:构造入参 > 环境变量 > 类默认值。
+    DEFAULT_BASE_URL: ClassVar[str] = ""
+
     ENV_BASE_URL: ClassVar[str] = ""
     ENV_API_KEY: ClassVar[str] = ""
     ENV_INSTANCE_ID: ClassVar[str] = ""
@@ -39,6 +43,7 @@ class BaseClient:
         self.base_url = (
             base_url
             or (os.environ.get(self.ENV_BASE_URL) if self.ENV_BASE_URL else None)
+            or self.DEFAULT_BASE_URL
             or ""
         ).rstrip("/")
         self.api_key = (

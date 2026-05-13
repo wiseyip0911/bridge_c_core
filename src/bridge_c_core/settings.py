@@ -32,14 +32,17 @@ class Settings:
         env_prefix: str,
         interactive: bool = True,
         env_overrides: dict[str, str] | None = None,
+        default_base_url: str = "",
     ) -> "Settings":
         """按约定的 env_prefix 读取配置。
 
         例如 env_prefix="KQ_POOL_" 会读取 KQ_POOL_BASE_URL / KQ_POOL_API_KEY ...
 
-        env_overrides 用于个别公司想用不规则变量名时覆盖,例如
-        ``{"instance_id": "C_INSTANCE_ID"}`` —— 仅在迁移老部署时使用,
-        新接入的公司应该全部使用 ``{PREFIX}+后缀`` 的标准命名。
+        - ``default_base_url`` 用于"企业专用仓内置默认 URL"场景:
+          env 没设置时退化到该默认值,末端机器只需配 API_KEY。
+        - ``env_overrides`` 用于个别公司想用不规则变量名时覆盖,例如
+          ``{"instance_id": "C_INSTANCE_ID"}`` —— 仅在迁移老部署时使用,
+          新接入的公司应该全部使用 ``{PREFIX}+后缀`` 的标准命名。
         """
         names = {
             "base_url": f"{env_prefix}BASE_URL",
@@ -53,7 +56,7 @@ class Settings:
         if env_overrides:
             names.update(env_overrides)
 
-        base = _env(names["base_url"], "").rstrip("/")
+        base = _env(names["base_url"], default_base_url).rstrip("/")
         if not base:
             print(
                 f"请设置环境变量 {names['base_url']}(对端根 URL,无尾斜杠)",

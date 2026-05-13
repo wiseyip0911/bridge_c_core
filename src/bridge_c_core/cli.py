@@ -73,6 +73,7 @@ def make_cli(
             settings = Settings.from_env(
                 env_prefix=env_prefix,
                 interactive=not args.no_interactive,
+                default_base_url=client_cls.DEFAULT_BASE_URL,
             )
         except SystemExit:
             raise
