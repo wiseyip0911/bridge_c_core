@@ -78,6 +78,11 @@
       padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
       background: #121a26; color: var(--text); font-size: 14px;
     }
+    #composer select {
+      min-width: 120px; max-width: 160px; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: #121a26; color: var(--text);
+      font-size: 13px; align-self: flex-end;
+    }
     button {
       padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer;
       background: var(--accent); color: #fff; font-weight: 600; font-size: 14px;
@@ -99,6 +104,11 @@
       <div id="thread-head">请选择左侧联系人</div>
       <div id="messages"><div class="empty">加载中…</div></div>
       <div id="composer">
+        <select id="channel" title="payload_json.channel，默认 lookup（走工具/能力）">
+          <option value="lookup" selected>lookup 查询</option>
+          <option value="summarize">summarize 摘要</option>
+          <option value="chat">chat 闲聊</option>
+        </select>
         <textarea id="input" placeholder="输入消息… (Enter 发送, Shift+Enter 换行)" rows="2"></textarea>
         <button id="send" type="button">发送</button>
       </div>
@@ -107,9 +117,21 @@
   <script>
     const POLL_MS = 1500;
     const SK = "bridge-c-chat-web:peer";
+    const CH_SK = "bridge-c-chat-web:channel";
 
     let selectedPeer = sessionStorage.getItem(SK) || "";
     let lastSnapshot = null;
+
+    (function initChannelSelect() {
+      const sel = document.getElementById("channel");
+      const saved = sessionStorage.getItem(CH_SK);
+      if (saved && [...sel.options].some((o) => o.value === saved)) {
+        sel.value = saved;
+      }
+      sel.addEventListener("change", () => {
+        sessionStorage.setItem(CH_SK, sel.value);
+      });
+    })();
 
     function setErr(msg) {
       document.getElementById("err").textContent = msg || "";
@@ -266,10 +288,11 @@
       btn.disabled = true;
       setErr("");
       try {
+        const ch = document.getElementById("channel").value || "lookup";
         const r = await fetch("/api/send", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ to: selectedPeer, text: text, channel: "chat" }),
+          body: JSON.stringify({ to: selectedPeer, text: text, channel: ch }),
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) {
