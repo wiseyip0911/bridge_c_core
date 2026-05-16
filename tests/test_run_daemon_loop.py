@@ -87,6 +87,30 @@ def test_handles_nested_data_items(monkeypatch, tmp_path: Path) -> None:
     assert (tmp_path / "r-x.json").exists()
 
 
+def test_skips_result_items(monkeypatch, tmp_path: Path) -> None:
+    items = [
+        {
+            "record_id": "r-task",
+            "record_type": "task",
+            "payload_json": {"input_text": "hi"},
+        },
+        {
+            "record_id": "r-result",
+            "record_type": "result",
+            "payload_json": {"result_text": "done", "status": "ok"},
+        },
+    ]
+    client = FakeClient({"success": True, "auto_ack": True, "items": items})
+
+    monkeypatch.setattr("bridge_c_core.daemon.time.sleep", lambda *_: (_ for _ in ()).throw(_StopLoop()))
+    with pytest.raises(_StopLoop):
+        run_daemon(client, _settings(tmp_path))
+
+    assert (tmp_path / "r-task.json").exists()
+    assert not (tmp_path / "r-result.json").exists()
+    assert client.ack_calls == ["r-task", "r-result"]
+
+
 def test_skips_non_dict_items(monkeypatch, tmp_path: Path) -> None:
     items = [{"record_id": "good"}, "not-a-dict", 42]
     client = FakeClient({"success": True, "items": items})

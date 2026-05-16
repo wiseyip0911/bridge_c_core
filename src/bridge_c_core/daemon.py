@@ -17,6 +17,7 @@ from typing import Any, Protocol
 import httpx
 
 from bridge_c_core.messages_log import append_inbound
+from bridge_c_core.record_protocol import is_agent_work_item, record_type_of
 from bridge_c_core.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -165,24 +166,31 @@ def run_daemon(client: PollableInbox, settings: Settings) -> None:
 
             auto_ack = resp.get("auto_ack") is True
             for item in _iter_items(resp):
-                written = write_local_item(pool, item)
-                if written:
-                    logger.info("已写入本地池 %s", written.name)
-                    if message_log:
-                        append_inbound(
-                            message_log,
-                            item,
-                            self_instance_id=settings.instance_id,
-                        )
-                    if notify_url:
-                        notify_webhook(
-                            notify_url,
-                            item,
-                            secret=settings.notify_webhook_secret,
-                            timeout=settings.notify_webhook_timeout_sec,
-                            record_id=_extract_record_id(item),
-                        )
                 rid = _extract_record_id(item)
+                if message_log:
+                    append_inbound(
+                        message_log,
+                        item,
+                        self_instance_id=settings.instance_id,
+                    )
+                if is_agent_work_item(item):
+                    written = write_local_item(pool, item)
+                    if written:
+                        logger.info("已写入本地池 %s", written.name)
+                        if notify_url:
+                            notify_webhook(
+                                notify_url,
+                                item,
+                                secret=settings.notify_webhook_secret,
+                                timeout=settings.notify_webhook_timeout_sec,
+                                record_id=rid,
+                            )
+                else:
+                    logger.info(
+                        "跳过非 task 收件(仅记日志+ack) rid=%s type=%s",
+                        rid or "?",
+                        record_type_of(item),
+                    )
                 if rid and auto_ack:
                     ack_r = client.inbox_ack_relaxed(rid)
                     logger.debug("ack %s -> %s", rid, ack_r.get("success", ack_r))
